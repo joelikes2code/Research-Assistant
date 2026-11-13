@@ -16,8 +16,28 @@ Outputs (in OUT_DIR):
     papers.jsonl  one paper per line: paper_id, title, n_pages, n_chunks, warnings
 
 Known limits (report these): tables and equations extract badly, and two-column
-layouts can occasionally interleave. Heading detection is a font-size/boldness
-heuristic. Always eyeball the output for a sample of papers.
+layouts can occasionally interleave. Heading detection is a heuristic (numbered or
+known section names that are also bold/larger). Always eyeball the output for a
+sample of papers.
+
+Change log (v0.2, NOT yet validated on ACL two-column PDFs):
+  - text comes from the "words" extractor (correct spacing); font size/bold from "dict",
+    matched to words by bounding box (block numbers differ between the two modes).
+  - headings must be numbered or a known name, and bold or larger than body text.
+  - small-font blocks (footnotes) are dropped after the front matter.
+  - short text repeated across many pages (running headers) is dropped.
+  - paragraphs split by a page/column break are re-joined.
+  - run-in "Abstract ..." text is split off the front matter as its own section.
+v0.3: captions/tables kept; only page-1 footnotes dropped.
+v0.4: scope is MAIN TEXT ONLY (Abstract up to the first References / Appendix /
+      Declarations heading). ACL appendices come after References, so this keeps
+      all venues consistent. Numbered headings may wrap to 3 lines.
+v0.5: run-in numbered headings (bold "5.1.1 Title" followed by body text in the
+      same block, common in ACL PDFs) are split into heading + body.
+v0.6: v0.5 never fired: the leading bold spans were joined with "" ("5.1.1Structure
+      Identifier"), so the whitespace the heading regex requires was missing. Now the heading word count comes
+      from the words extractor by bounding box (spans are separate words). Verified on P002:
+      5.1.1, 5.1.2, 5.2.1-5.2.4, 7.1.1 now appear; P001 unchanged at 55 chunks.
 """
 import argparse
 import json
@@ -33,6 +53,10 @@ STOP_SECTIONS = {"references", "bibliography"}          # stop processing here
 SKIP_SECTIONS = {"acknowledgments", "acknowledgements", "acknowledgment"}
 NUM_PREFIX = re.compile(r"^(\d+(\.\d+)*\.?|[A-Z]\.\d*)\s+")
 SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\[(])")
+KNOWN = {"abstract", "introduction", "conclusion", "conclusions", "limitations",
+         "ethics statement", "ethical considerations", "related work", "background",
+         "discussion", "acknowledgments", "acknowledgements", "references",
+         "bibliography", "appendix"}
 
 
 def est_tokens(text: str) -> int:
@@ -72,17 +96,43 @@ def build_blocks(doc):
                 continue
             text = unicodedata.normalize(
                 "NFKC", join_lines([" ".join(ws) for ws in lines.values()]))
-            if re.fullmatch(r"\d{1,3}", text):
+            if re.fullmatch(r"\d{1,3}", text):                      # page number
                 continue
-            if by0 > 0.95 * height or by1 < 0.04 * height:
+            if by0 > 0.95 * height or by1 < 0.04 * height:          # header/footer
                 continue
+            is_b = lambda s: bool(s["flags"] & 16) or "bold" in s["font"].lower()
+            k = 0                                   # number of leading bold spans
+            while k < len(spans) and is_b(spans[k]):
+                k += 1
+            # leading bold words, counted by bounding box (spans are separate words)
+            lead_n = 0
+            if 0 < k < len(spans):
+                for x0, y0, x1, y1, w, bn, ln, wn in words:
+                    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+                    if any(s["bbox"][0] <= cx <= s["bbox"][2] and s["bbox"][1] <= cy <= s["bbox"][3]
+                           for s in spans[:k]):
+                        lead_n += 1
+            toks = text.split()
+            lead_text = " ".join(toks[:lead_n])
+            if (0 < k < len(spans) and 0 < lead_n < len(toks) and len(lead_text) <= 100
+                    and re.match(r"\d+(\.\d+)+\s+[A-Za-z]", lead_text)):
+                # run-in numbered heading ("5.1.1 Title Body text ...") -> split it
+                n = lead_n
+                if len(toks) > n:
+                    blocks.append({"page": pno, "text": " ".join(toks[:n]),
+                                   "size": max(s["size"] for s in spans[:k]),
+                                   "bold": True, "nlines": 1})
+                    blocks.append({"page": pno, "text": " ".join(toks[n:]),
+                                   "size": max(s["size"] for s in spans[k:]),
+                                   "bold": False, "nlines": len(lines)})
+                    continue
             blocks.append({
                 "page": pno, "text": text,
                 "size": max(s["size"] for s in spans),
-                "bold": all(bool(s["flags"] & 16) or "bold" in s["font"].lower()
-                            for s in spans),
+                "bold": all(is_b(s) for s in spans),
                 "nlines": len(lines)})
     return blocks
+
 
 def body_size(blocks):
     weights = Counter()
@@ -91,15 +141,39 @@ def body_size(blocks):
     return weights.most_common(1)[0][0] if weights else 10.0
 
 
+def heading_key(t):
+    return NUM_PREFIX.sub("", t).strip().lower().rstrip(":")
+
+
+def is_stop(key):
+    """Main-text boundary: references, appendices, declarations."""
+    return key in STOP_SECTIONS or key.startswith(("appendix", "declarations"))
+
+
 def is_heading(b, body):
     t = b["text"]
-    if b["nlines"] > 2 or len(t) > 100 or len(t) < 3:
+    if b["nlines"] > 3 or not 3 <= len(t) <= 120:
         return False
-    if t.endswith(".") and not NUM_PREFIX.match(t):
+    if not (b["bold"] or b["size"] >= body + 0.5):
         return False
-    if not t[0].isalnum():
+    m = NUM_PREFIX.match(t)
+    if m:                                   # numbered headings may wrap to 3 lines
+        rest = t[m.end():]
+        return bool(rest) and rest[0].isalpha() and not t.endswith(".")
+    if b["nlines"] > 2:
         return False
-    return b["size"] >= body + 0.5 or b["bold"]
+    key = heading_key(t)
+    return key in KNOWN or is_stop(key)
+
+
+def drop_running_text(blocks, n_pages):
+    """Remove short blocks that repeat on many pages (running headers/footers)."""
+    key = lambda t: re.sub(r"\d+", "#", t.lower())
+    pages = {}
+    for b in blocks:
+        pages.setdefault(key(b["text"]), set()).add(b["page"])
+    cut = max(3, int(0.3 * n_pages))
+    return [b for b in blocks if len(b["text"]) > 150 or len(pages[key(b["text"])]) < cut]
 
 
 def split_long(paragraph, target):
@@ -137,7 +211,7 @@ def chunk_section(paras, target, hard_max, min_tokens):
 
 def process_pdf(path, target, hard_max, min_tokens):
     doc = pymupdf.open(path)
-    blocks = build_blocks(doc)
+    blocks = drop_running_text(build_blocks(doc), len(doc))
     body = body_size(blocks)
     first_page = [b for b in blocks if b["page"] == 1]
     title = max(first_page, key=lambda b: b["size"])["text"] if first_page else path.stem
@@ -147,16 +221,33 @@ def process_pdf(path, target, hard_max, min_tokens):
         if is_heading(b, body):
             sections.append(current)
             current = {"name": b["text"], "page": b["page"], "paras": []}
-            if NUM_PREFIX.sub("", b["text"]).strip().lower() in STOP_SECTIONS:
+            if is_stop(heading_key(b["text"])):
                 break
+            continue
+        in_front = current["name"] == "Front matter"
+        small = b["size"] < body - 1.0
+        if small and b["page"] == 1 and not in_front:
+            continue                                   # page-1 affiliation footnotes only
+        paras = current["paras"]
+        if (not in_front and not small and paras and paras[-1][-1:] not in ".!?:"
+                and b["text"][:1].islower()):
+            paras[-1] = join_lines([paras[-1], b["text"]])   # paragraph split by page/column
         else:
-            current["paras"].append(b["text"])
+            paras.append(b["text"])
     sections.append(current)
+
+    # run-in abstract ("Abstract Agentic AI ...") sitting in the front matter
+    if not any(s["name"].lower() == "abstract" for s in sections):
+        for p in sections[0]["paras"]:
+            if p.lower().startswith("abstract"):
+                text = re.sub(r"^abstract[\s:.\u2014-]*", "", p, flags=re.I)
+                sections.insert(1, {"name": "Abstract", "page": 1, "paras": [text]})
+                break
 
     chunks = []
     for sec in sections:
-        key = NUM_PREFIX.sub("", sec["name"]).strip().lower()
-        if sec["name"] == "Front matter" or key in SKIP_SECTIONS or key in STOP_SECTIONS:
+        key = heading_key(sec["name"])
+        if sec["name"] == "Front matter" or key in SKIP_SECTIONS or is_stop(key):
             continue
         for text in chunk_section(sec["paras"], target, hard_max, min_tokens):
             if est_tokens(text) < 15:
