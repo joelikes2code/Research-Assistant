@@ -1,0 +1,2 @@
+paper_id,title,venue,year,url,licence,licence_verified,public_release,paper_type,split,first_public_date,notes
+P001,"From threat to trust: assessing security risks of agentic AI systems","Springer journal (name to fill in)",2026,,"exclusive licence to Springer-Verlag (per copyright line)",no,false,methodology,dev_only,2026-01-04,"Private dev paper. Not CC BY as far as known; check article page. Keep out of repo, splits and any released data."

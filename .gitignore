@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.ipynb_checkpoints/
+data/pdfs/
+chroma_db/
+adapters/
+*.safetensors
+*.gguf
+*.bin
+.venv/
+data/pdfs/
+data/processed/
+__pycache__/
