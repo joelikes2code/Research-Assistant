@@ -6,13 +6,16 @@ FREEZE THIS FILE before generating any training or test data. Every gold citatio
 refers to the chunk IDs this script produces; changing it later invalidates them.
 
 Usage:
-    python chunk_papers.py PDF_DIR OUT_DIR [--target 400] [--max 550] [--min 80]
+    python chunk_papers.py PDF_DIR OUT_DIR [--target 400] [--max 512] [--min 80]
+
+Token counts are exact, from the embedder's tokenizer (TOKENIZER below), and include
+the "[Section: ...]" prefix and [CLS]/[SEP]. --max may not exceed EMBED_WINDOW (512).
 
 Rename PDFs to short alphanumeric IDs first (P001.pdf, P002.pdf, ...) and keep a
 papers.csv mapping each ID to title, venue, year, licence and URL.
 
 Outputs (in OUT_DIR):
-    chunks.jsonl  one chunk per line: chunk_id, paper_id, section, page, text, est_tokens
+    chunks.jsonl  one chunk per line: chunk_id, paper_id, section, page, text, n_tokens
     papers.jsonl  one paper per line: paper_id, title, n_pages, n_chunks, warnings
 
 Known limits (report these): tables and equations extract badly, and two-column
@@ -38,6 +41,33 @@ v0.6: v0.5 never fired: the leading bold spans were joined with "" ("5.1.1Struct
       Identifier"), so the whitespace the heading regex requires was missing. Now the heading word count comes
       from the words extractor by bounding box (spans are separate words). Verified on P002:
       5.1.1, 5.1.2, 5.2.1-5.2.4, 7.1.1 now appear; P001 unchanged at 55 chunks.
+v0.7: words are built from rawdict characters (page_words) and also split where the gap
+      between two characters in the same span exceeds 0.10 em. P001 has no space
+      characters on many lines ("Buildingonthethreatmodelingframeworks"); its gaps are
+      0.12-0.15 em vs <= 0.06 em inside words. Verified: non-space text identical for
+      P001-P003; P002 unchanged; P003 only "∈{Ls," -> "∈ {Ls,". P001 now 56 chunks
+      (correct word counts split section 2.2 once more), so P001_c10+ IDs shifted by one.
+      Not fixed: line-break de-hyphenation also joins real compounds
+      ("environment-\\nmodifying" -> "environmentmodifying").
+v0.8: layouts of P004-P008 (USENIX, DeepMind, ICML, IEEE). Verified P001-P003 output
+      byte-identical to v0.7.
+  - arXiv margin stamps ("arXiv:2503.18813v2 [cs.CR] 24 Jun 2025") are dropped.
+  - body font size is estimated from the first 10 pages (P005's 100+ appendix pages of
+    small code gave 6.6pt, so 8pt figure text became "headings").
+  - headings smaller than 0.8 x body are rejected (bold labels inside figures, P004).
+  - IEEE headings at body size are accepted on one line: "IV. DEFENSES" (Roman, caps),
+    italic "A. Sessions", and all-caps known names ("REFERENCES").
+  - unlabelled abstract: if none is found, the longest page-1 front-matter paragraph
+    (>= 100 words) becomes "Abstract" and papers.jsonl gets a warning (P005).
+  Not fixed: papers.jsonl "title" is the largest page-1 text and is wrong for P005
+  ("1. Introduction"); papers.csv is the source of truth for titles.
+v0.9: exact token counts. est_tokens (words x 1.3) undercounted tables, math and code,
+      so 12 chunks exceeded the embedder's 512-token window and were truncated. Now
+      n_tokens() uses the bge-small-en-v1.5 tokenizer and measures the chunk WITH its
+      "[Section: ...]" prefix; --max defaults to (and is capped at) 512; sentences longer
+      than --target (table text) are split on words; the tiny-tail merge only happens if
+      the result fits. chunks.jsonl field est_tokens -> n_tokens. Chunk IDs of all papers
+      change, since boundaries move.
 """
 import argparse
 import json
@@ -50,18 +80,34 @@ from pathlib import Path
 import pymupdf
 
 STOP_SECTIONS = {"references", "bibliography"}          # stop processing here
-SKIP_SECTIONS = {"acknowledgments", "acknowledgements", "acknowledgment"}
+SKIP_SECTIONS = {"acknowledgments", "acknowledgements", "acknowledgment",
+                 "acknowledgement", "acknowlegement"}       # last: typo in P007
+WORD_GAP_EM = 0.10     # letter gaps in P001-P003 are <= 0.06 em; missing spaces are 0.12-0.15 em
 NUM_PREFIX = re.compile(r"^(\d+(\.\d+)*\.?|[A-Z]\.\d*)\s+")
 SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\[(])")
 KNOWN = {"abstract", "introduction", "conclusion", "conclusions", "limitations",
          "ethics statement", "ethical considerations", "related work", "background",
-         "discussion", "acknowledgments", "acknowledgements", "references",
-         "bibliography", "appendix"}
+         "discussion", "references", "bibliography", "appendix"} | SKIP_SECTIONS
+ARXIV_STAMP = re.compile(r"^arXiv:\d{4}\.\d{4,5}(v\d+)?\s*\[[^\]]+\]\s+\d{1,2} \w{3} \d{4}$")
+ROMAN_HEAD = re.compile(r"^[IVX]+\.\s+[A-Z][A-Z0-9 ,:&/-]+$")       # IEEE "IV. DEFENSES"
+LETTER_HEAD = re.compile(r"^[A-H]\.\s+[A-Z][^.]{2,80}$")           # IEEE italic "A. Sessions"
+BODY_PAGES = 10        # estimate body font size from the first pages only (long appendices skew it)
 
 
-def est_tokens(text: str) -> int:
-    """Cheap token estimate (words * 1.3). Replace with a real tokenizer if wanted."""
-    return int(len(text.split()) * 1.3) + 1
+TOKENIZER = "BAAI/bge-small-en-v1.5"    # must match the embedding model in index.py
+EMBED_WINDOW = 512                      # its max sequence length, special tokens included
+_tokenizer = None
+
+
+def n_tokens(text: str) -> int:
+    """Exact token count under the embedder's tokenizer, incl. [CLS] and [SEP]."""
+    global _tokenizer
+    if _tokenizer is None:
+        from tokenizers import Tokenizer
+        _tokenizer = Tokenizer.from_pretrained(TOKENIZER)   # cached after first download
+        _tokenizer.no_truncation()
+        _tokenizer.no_padding()
+    return len(_tokenizer.encode(text).ids)
 
 
 def join_lines(lines):
@@ -76,11 +122,45 @@ def join_lines(lines):
     return out.strip()
 
 
+def page_words(page, gap_em=WORD_GAP_EM):
+    """Like page.get_text("words") (same tuples), but also breaks a word wherever the
+    horizontal gap between two characters exceeds gap_em * font size. Some PDFs (P001)
+    encode inter-word spaces as positioning only, with no space character, and MuPDF's
+    words extractor then glues the whole line together."""
+    out = []
+    for bn, b in enumerate(page.get_text("rawdict")["blocks"]):
+        for ln, line in enumerate(b.get("lines", [])):
+            cur, prev, wn = [], None, 0
+
+            def flush():
+                nonlocal cur, wn
+                if cur:
+                    out.append((min(c["bbox"][0] for c in cur), min(c["bbox"][1] for c in cur),
+                                max(c["bbox"][2] for c in cur), max(c["bbox"][3] for c in cur),
+                                "".join(c["c"] for c in cur), bn, ln, wn))
+                    wn += 1
+                    cur = []
+
+            for s in line["spans"]:
+                prev = None                    # gap rule only within one span: math glyphs
+                for c in s["chars"]:           # come from other fonts with wide side bearings
+                    if c["c"].isspace():
+                        flush()
+                        prev = None
+                        continue
+                    if prev is not None and c["bbox"][0] - prev["bbox"][2] > gap_em * s["size"]:
+                        flush()
+                    cur.append(c)
+                    prev = c
+            flush()
+    return out
+
+
 def build_blocks(doc):
     blocks = []
     for pno, page in enumerate(doc, start=1):
         height = page.rect.height
-        words = page.get_text("words")   # (x0, y0, x1, y1, word, block, line, wordno)
+        words = page_words(page)         # (x0, y0, x1, y1, word, block, line, wordno)
         for b in page.get_text("dict")["blocks"]:
             if b.get("type") != 0:
                 continue
@@ -97,6 +177,8 @@ def build_blocks(doc):
             text = unicodedata.normalize(
                 "NFKC", join_lines([" ".join(ws) for ws in lines.values()]))
             if re.fullmatch(r"\d{1,3}", text):                      # page number
+                continue
+            if ARXIV_STAMP.match(text):                             # arXiv margin stamp
                 continue
             if by0 > 0.95 * height or by1 < 0.04 * height:          # header/footer
                 continue
@@ -130,6 +212,7 @@ def build_blocks(doc):
                 "page": pno, "text": text,
                 "size": max(s["size"] for s in spans),
                 "bold": all(is_b(s) for s in spans),
+                "italic": all(s["flags"] & 2 for s in spans),
                 "nlines": len(lines)})
     return blocks
 
@@ -154,8 +237,14 @@ def is_heading(b, body):
     t = b["text"]
     if b["nlines"] > 3 or not 3 <= len(t) <= 120:
         return False
-    if not (b["bold"] or b["size"] >= body + 0.5):
+    if b["size"] < 0.8 * body:              # bold labels inside figures (P004 "5. Response")
         return False
+    if not (b["bold"] or b["size"] >= body + 0.5):
+        # IEEE style: small-caps or italic headings at body size, one line
+        return b["nlines"] == 1 and bool(
+            ROMAN_HEAD.match(t)
+            or (b.get("italic") and LETTER_HEAD.match(t))
+            or (t.isupper() and heading_key(t) in KNOWN))
     m = NUM_PREFIX.match(t)
     if m:                                   # numbered headings may wrap to 3 lines
         rest = t[m.end():]
@@ -176,34 +265,54 @@ def drop_running_text(blocks, n_pages):
     return [b for b in blocks if len(b["text"]) > 150 or len(pages[key(b["text"])]) < cut]
 
 
-def split_long(paragraph, target):
+def split_words(text, target, measure):
+    """Last resort for a 'sentence' over target (table text, no periods): split on words."""
+    out, cur = [], []
+    for w in text.split():
+        if cur and measure(" ".join(cur + [w])) > target:
+            out.append(" ".join(cur))
+            cur = [w]
+        else:
+            cur.append(w)
+    if cur:
+        out.append(" ".join(cur))
+    return out
+
+
+def split_long(paragraph, target, measure):
     """Split an over-long paragraph on sentence boundaries into <= target pieces."""
     pieces, cur = [], ""
     for sent in SENT_SPLIT.split(paragraph):
-        if cur and est_tokens(cur + " " + sent) > target:
-            pieces.append(cur)
-            cur = sent
-        else:
-            cur = (cur + " " + sent).strip()
+        parts = split_words(sent, target, measure) if measure(sent) > target else [sent]
+        for part in parts:
+            if cur and measure(cur + " " + part) > target:
+                pieces.append(cur)
+                cur = part
+            else:
+                cur = (cur + " " + part).strip()
     if cur:
         pieces.append(cur)
     return pieces
 
 
-def chunk_section(paras, target, hard_max, min_tokens):
+def chunk_section(paras, target, hard_max, min_tokens, prefix=""):
+    """Pack paragraphs into chunks. Sizes are measured WITH the "[Section: ...] " prefix,
+    because that is the text the embedder sees; every chunk is <= hard_max tokens."""
+    measure = lambda t: n_tokens(prefix + t)
     units = []
     for p in paras:
-        units += split_long(p, target) if est_tokens(p) > hard_max else [p]
+        units += split_long(p, target, measure) if measure(p) > hard_max else [p]
     chunks, cur = [], []
     for u in units:
-        if cur and est_tokens(" ".join(cur + [u])) > target:
+        if cur and measure(" ".join(cur + [u])) > target:
             chunks.append(" ".join(cur))
             cur = [u]
         else:
             cur.append(u)
     if cur:
         chunks.append(" ".join(cur))
-    if len(chunks) > 1 and est_tokens(chunks[-1]) < min_tokens:   # merge tiny tail
+    if (len(chunks) > 1 and measure(chunks[-1]) < min_tokens          # merge tiny tail
+            and measure(chunks[-2] + " " + chunks[-1]) <= hard_max):
         tail = chunks.pop()
         chunks[-1] = chunks[-1] + " " + tail
     return chunks
@@ -212,7 +321,7 @@ def chunk_section(paras, target, hard_max, min_tokens):
 def process_pdf(path, target, hard_max, min_tokens):
     doc = pymupdf.open(path)
     blocks = drop_running_text(build_blocks(doc), len(doc))
-    body = body_size(blocks)
+    body = body_size([b for b in blocks if b["page"] <= BODY_PAGES])
     first_page = [b for b in blocks if b["page"] == 1]
     title = max(first_page, key=lambda b: b["size"])["text"] if first_page else path.stem
 
@@ -243,18 +352,29 @@ def process_pdf(path, target, hard_max, min_tokens):
                 text = re.sub(r"^abstract[\s:.\u2014-]*", "", p, flags=re.I)
                 sections.insert(1, {"name": "Abstract", "page": 1, "paras": [text]})
                 break
+    # unlabelled abstract (P005, Google DeepMind template): longest page-1 front-matter
+    # paragraph of >= 100 words. Reported in papers.jsonl warnings: check it by hand.
+    inferred_abstract = False
+    if not any(s["name"].lower() == "abstract" for s in sections):
+        cands = [p for p in sections[0]["paras"] if len(p.split()) >= 100]
+        if cands:
+            sections.insert(1, {"name": "Abstract", "page": 1,
+                                "paras": [max(cands, key=lambda p: len(p.split()))]})
+            inferred_abstract = True
 
     chunks = []
     for sec in sections:
         key = heading_key(sec["name"])
         if sec["name"] == "Front matter" or key in SKIP_SECTIONS or is_stop(key):
             continue
-        for text in chunk_section(sec["paras"], target, hard_max, min_tokens):
-            if est_tokens(text) < 15:
+        prefix = f"[Section: {sec['name']}] "
+        for text in chunk_section(sec["paras"], target, hard_max, min_tokens, prefix):
+            if n_tokens(text) < 15:
                 continue
             chunks.append({"section": sec["name"], "page": sec["page"],
-                           "text": f"[Section: {sec['name']}] {text}"})
-    return title, len(doc), chunks
+                           "text": prefix + text})
+    notes = ["abstract inferred (no 'Abstract' label): check it"] if inferred_abstract else []
+    return title, len(doc), chunks, notes
 
 
 def main():
@@ -262,9 +382,11 @@ def main():
     ap.add_argument("pdf_dir")
     ap.add_argument("out_dir")
     ap.add_argument("--target", type=int, default=400)
-    ap.add_argument("--max", type=int, default=550)
+    ap.add_argument("--max", type=int, default=EMBED_WINDOW)
     ap.add_argument("--min", type=int, default=80)
     args = ap.parse_args()
+    if args.max > EMBED_WINDOW:
+        sys.exit(f"--max {args.max} > {EMBED_WINDOW}: the embedder would truncate chunks.")
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -278,14 +400,15 @@ def main():
             pid = pdf.stem
             if not re.fullmatch(r"[A-Za-z0-9]+", pid):
                 sys.exit(f"Bad paper ID '{pid}': use letters/digits only (e.g. P001).")
-            title, n_pages, chunks = process_pdf(pdf, args.target, args.max, args.min)
-            warnings = []
+            title, n_pages, chunks, warnings = process_pdf(pdf, args.target, args.max, args.min)
             if len(chunks) < 8:
                 warnings.append("few chunks: check extraction")
             for i, c in enumerate(chunks):
                 rec = {"chunk_id": f"{pid}_c{i:02d}", "paper_id": pid,
                        "section": c["section"], "page": c["page"], "text": c["text"],
-                       "est_tokens": est_tokens(c["text"])}
+                       "n_tokens": n_tokens(c["text"])}
+                if rec["n_tokens"] > args.max:
+                    warnings.append(f"{rec['chunk_id']} has {rec['n_tokens']} tokens > {args.max}")
                 cf.write(json.dumps(rec, ensure_ascii=False) + "\n")
             pf.write(json.dumps({"paper_id": pid, "title": title, "n_pages": n_pages,
                                  "n_chunks": len(chunks), "warnings": warnings},
