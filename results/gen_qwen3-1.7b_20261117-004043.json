@@ -1,0 +1,90 @@
+{
+  "model": "qwen3:1.7b",
+  "k": 5,
+  "split": "all",
+  "index": {
+    "model": "BAAI/bge-small-en-v1.5",
+    "n_chunks": 356,
+    "chunks_path": "D:\\dev\\research-assistant\\data\\processed\\chunks.jsonl",
+    "chunks_sha256": "110eb8bf1481dde9356914685c8013f2028d239e6c487c5e9d390edd09f9e1dd",
+    "chunker_sha256": "84d987b52a203fab2afe3a34789e8a25753060c3a311c88a6cec551b7c886155"
+  },
+  "all": {
+    "n": 41,
+    "rules_ok": 0.22,
+    "rules_ok_n": 41,
+    "answered": 0.722,
+    "answered_n": 36,
+    "gold_cited": 0.5,
+    "gold_cited_n": 36,
+    "gold_cited_all": 0.444,
+    "gold_cited_all_n": 36,
+    "gold_in_ctx": 0.778,
+    "gold_in_ctx_n": 36,
+    "abstained": 1.0,
+    "abstained_n": 5,
+    "clean_abstain": 0.2,
+    "clean_abstain_n": 5,
+    "errors": {
+      "sentence_without_citation": 16,
+      "abstention_has_extra_text": 14,
+      "abstention_has_citation": 11,
+      "number_not_in_cited_chunk": 3,
+      "quote_not_in_cited_chunk": 3,
+      "no_citations": 1,
+      "cites_chunk_not_in_context": 1
+    },
+    "mean_seconds": 36.8
+  },
+  "dev": {
+    "n": 29,
+    "rules_ok": 0.207,
+    "rules_ok_n": 29,
+    "answered": 0.654,
+    "answered_n": 26,
+    "gold_cited": 0.5,
+    "gold_cited_n": 26,
+    "gold_cited_all": 0.5,
+    "gold_cited_all_n": 26,
+    "gold_in_ctx": 0.808,
+    "gold_in_ctx_n": 26,
+    "abstained": 1.0,
+    "abstained_n": 3,
+    "clean_abstain": 0.0,
+    "clean_abstain_n": 3,
+    "errors": {
+      "abstention_has_extra_text": 12,
+      "sentence_without_citation": 9,
+      "abstention_has_citation": 9,
+      "number_not_in_cited_chunk": 3,
+      "quote_not_in_cited_chunk": 2,
+      "cites_chunk_not_in_context": 1
+    },
+    "mean_seconds": 38.2
+  },
+  "test": {
+    "n": 12,
+    "rules_ok": 0.25,
+    "rules_ok_n": 12,
+    "answered": 0.9,
+    "answered_n": 10,
+    "gold_cited": 0.5,
+    "gold_cited_n": 10,
+    "gold_cited_all": 0.3,
+    "gold_cited_all_n": 10,
+    "gold_in_ctx": 0.7,
+    "gold_in_ctx_n": 10,
+    "abstained": 1.0,
+    "abstained_n": 2,
+    "clean_abstain": 0.5,
+    "clean_abstain_n": 2,
+    "errors": {
+      "sentence_without_citation": 7,
+      "abstention_has_extra_text": 2,
+      "abstention_has_citation": 2,
+      "no_citations": 1,
+      "quote_not_in_cited_chunk": 1
+    },
+    "mean_seconds": 33.6
+  }
+}
