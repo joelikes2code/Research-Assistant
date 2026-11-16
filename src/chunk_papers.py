@@ -68,6 +68,21 @@ v0.9: exact token counts. est_tokens (words x 1.3) undercounted tables, math and
       than --target (table text) are split on words; the tiny-tail merge only happens if
       the result fits. chunks.jsonl field est_tokens -> n_tokens. Chunk IDs of all papers
       change, since boundaries move.
+v0.10: freeze candidate.
+  - words go to the block MuPDF extracted them from, not to every block whose bbox
+    contains them. Overlapping bboxes (paragraph wrapping under a side figure, tables)
+    copied text into two blocks: P005 "...to an adversary). quested in our last
+    meeting?" and 7 duplicated table values in P004. Checked: removed text was only
+    duplicates (every lost 6-gram had another copy; repeated 6-grams P001 173->96,
+    P005 423->301, P008 227->85); P002 and P007 text unchanged.
+  - line-break hyphens: keep the hyphen when both halves are words of the paper and the
+    joined form is neither a word of the paper nor a common English word (tokenizer
+    vocabulary): "decision-making", "LLM-based", "red-teaming"; still "re-quested" ->
+    "requested", "More-over" -> "Moreover". "Llama-3.3-" + "70B" joins with no space.
+  - title from PDF metadata when set, else all largest-font page-1 blocks joined
+    (P003's two-line title was cut; P005 showed "1. Introduction").
+  Known, not fixed: hyphen fragments inside one table line stay split ("Manip- ulation",
+  P001); figure-internal text is kept as body text (e.g. start of P005_c03).
 """
 import argparse
 import json
@@ -99,36 +114,90 @@ EMBED_WINDOW = 512                      # its max sequence length, special token
 _tokenizer = None
 
 
-def n_tokens(text: str) -> int:
-    """Exact token count under the embedder's tokenizer, incl. [CLS] and [SEP]."""
+def get_tokenizer():
     global _tokenizer
     if _tokenizer is None:
         from tokenizers import Tokenizer
         _tokenizer = Tokenizer.from_pretrained(TOKENIZER)   # cached after first download
         _tokenizer.no_truncation()
         _tokenizer.no_padding()
-    return len(_tokenizer.encode(text).ids)
+    return _tokenizer
 
 
-def join_lines(lines):
+def n_tokens(text: str) -> int:
+    """Exact token count under the embedder's tokenizer, incl. [CLS] and [SEP]."""
+    return len(get_tokenizer().encode(text).ids)
+
+
+def is_common_word(w: str) -> bool:
+    """True if w is a whole word in the (uncased) WordPiece vocabulary: a cheap English
+    dictionary of ~30k common words ("moreover", "incorrectly", "outgoing")."""
+    return get_tokenizer().token_to_id(w.lower()) is not None
+
+
+def _norm_word(w):
+    return re.sub(r"^\W+|\W+$", "", unicodedata.normalize("NFKC", w)).lower()
+
+
+def doc_vocab(words_by_page):
+    """Lower-cased words of the whole paper, for de-hyphenation decisions. Line-break
+    fragments ("re-" at a line end and the word after it) are left out."""
+    vocab = set()
+    for words in words_by_page:
+        prev_line, prev_hyph = None, False
+        for x0, y0, x1, y1, w, bn, ln, wn in words:
+            if (bn, ln) != prev_line and prev_line is not None and prev_hyph and wn == 0:
+                prev_line = (bn, ln)
+                continue                                  # fragment after a line-end hyphen
+            prev_line, prev_hyph = (bn, ln), w.endswith("-")
+            if w.endswith("-"):
+                continue
+            vocab.add(_norm_word(w))
+            vocab.update(_norm_word(p) for p in w.split("-"))
+    vocab.discard("")
+    return vocab
+
+
+def dehyphenate(left, right, vocab):
+    """Join `left` (ends with "-") and `right` (starts lowercase) at a line break.
+    Drop the hyphen ("re-" + "quested") unless it is a real compound: both halves are
+    words of this paper and the joined form is neither a word of this paper nor a
+    common English word ("environment-" + "modifying", "LLM-" + "based" keep it;
+    "More-" + "over" does not)."""
+    a = re.search(r"([^\W\d_]+)-$", left)
+    b = re.match(r"[^\W\d_]+", right)
+    if a and b and vocab:
+        x, y = a.group(1).lower(), b.group(0).lower()
+        if (x in vocab and y in vocab and x + y not in vocab
+                and not is_common_word(x + y)):
+            return left + right                              # keep the hyphen
+    return left[:-1] + right
+
+
+def join_lines(lines, vocab=frozenset()):
     out = ""
     for ln in lines:
         if not out:
             out = ln
         elif out.endswith("-") and ln[:1].islower():
-            out = out[:-1] + ln          # de-hyphenate line-break words
+            out = dehyphenate(out, ln, vocab)    # line-break hyphen
+        elif out.endswith("-") and ln[:1].isdigit() and out[-2:-1].isalnum():
+            out += ln                            # "Llama-3.3-" + "70B", "10-" + "20"
         else:
             out += " " + ln
     return out.strip()
 
 
-def page_words(page, gap_em=WORD_GAP_EM):
+def page_words(page, gap_em=WORD_GAP_EM, raw_blocks=None):
     """Like page.get_text("words") (same tuples), but also breaks a word wherever the
     horizontal gap between two characters exceeds gap_em * font size. Some PDFs (P001)
     encode inter-word spaces as positioning only, with no space character, and MuPDF's
-    words extractor then glues the whole line together."""
+    words extractor then glues the whole line together. The block number is the index
+    into page.get_text("rawdict")["blocks"] (pass raw_blocks to reuse an extraction)."""
     out = []
-    for bn, b in enumerate(page.get_text("rawdict")["blocks"]):
+    if raw_blocks is None:
+        raw_blocks = page.get_text("rawdict")["blocks"]
+    for bn, b in enumerate(raw_blocks):
         for ln, line in enumerate(b.get("lines", [])):
             cur, prev, wn = [], None, 0
 
@@ -157,25 +226,37 @@ def page_words(page, gap_em=WORD_GAP_EM):
 
 
 def build_blocks(doc):
+    """Returns (blocks, vocab). Words are assigned to the block MuPDF extracted them
+    from, not by bounding box: overlapping boxes (a paragraph wrapping under a side
+    figure, P005 p2) used to copy caption lines into the paragraph."""
+    pages = []
+    for page in doc:
+        raw = page.get_text("rawdict")["blocks"]
+        pages.append((page, raw, page_words(page, raw_blocks=raw)))
+    vocab = doc_vocab([w for _, _, w in pages])
     blocks = []
-    for pno, page in enumerate(doc, start=1):
+    for pno, (page, raw, words) in enumerate(pages, start=1):
         height = page.rect.height
-        words = page_words(page)         # (x0, y0, x1, y1, word, block, line, wordno)
-        for b in page.get_text("dict")["blocks"]:
+        by_block = {}                    # (x0, y0, x1, y1, word, block, line, wordno)
+        for w in words:
+            by_block.setdefault(w[5], []).append(w)
+        for bi, b in enumerate(raw):
             if b.get("type") != 0:
                 continue
-            spans = [s for ln in b["lines"] for s in ln["spans"] if s["text"].strip()]
+            spans = [dict(s, text="".join(c["c"] for c in s["chars"]))
+                     for ln in b["lines"] for s in ln["spans"]]
+            spans = [s for s in spans if s["text"].strip()]
             if not spans:
                 continue
             bx0, by0, bx1, by1 = b["bbox"]
+            bwords = by_block.get(bi, [])
             lines = {}
-            for x0, y0, x1, y1, w, bn, ln, wn in words:
-                if bx0 <= (x0 + x1) / 2 <= bx1 and by0 <= (y0 + y1) / 2 <= by1:
-                    lines.setdefault((bn, ln), []).append(w)
+            for x0, y0, x1, y1, w, bn, ln, wn in bwords:
+                lines.setdefault((bn, ln), []).append(w)
             if not lines:
                 continue
             text = unicodedata.normalize(
-                "NFKC", join_lines([" ".join(ws) for ws in lines.values()]))
+                "NFKC", join_lines([" ".join(ws) for ws in lines.values()], vocab))
             if re.fullmatch(r"\d{1,3}", text):                      # page number
                 continue
             if ARXIV_STAMP.match(text):                             # arXiv margin stamp
@@ -189,7 +270,7 @@ def build_blocks(doc):
             # leading bold words, counted by bounding box (spans are separate words)
             lead_n = 0
             if 0 < k < len(spans):
-                for x0, y0, x1, y1, w, bn, ln, wn in words:
+                for x0, y0, x1, y1, w, bn, ln, wn in bwords:
                     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
                     if any(s["bbox"][0] <= cx <= s["bbox"][2] and s["bbox"][1] <= cy <= s["bbox"][3]
                            for s in spans[:k]):
@@ -214,7 +295,7 @@ def build_blocks(doc):
                 "bold": all(is_b(s) for s in spans),
                 "italic": all(s["flags"] & 2 for s in spans),
                 "nlines": len(lines)})
-    return blocks
+    return blocks, vocab
 
 
 def body_size(blocks):
@@ -320,10 +401,16 @@ def chunk_section(paras, target, hard_max, min_tokens, prefix=""):
 
 def process_pdf(path, target, hard_max, min_tokens):
     doc = pymupdf.open(path)
-    blocks = drop_running_text(build_blocks(doc), len(doc))
+    blocks, vocab = build_blocks(doc)
+    blocks = drop_running_text(blocks, len(doc))
     body = body_size([b for b in blocks if b["page"] <= BODY_PAGES])
     first_page = [b for b in blocks if b["page"] == 1]
-    title = max(first_page, key=lambda b: b["size"])["text"] if first_page else path.stem
+    # title: PDF metadata if set, else all page-1 blocks in the largest font (wrapped titles)
+    title = (doc.metadata or {}).get("title", "").strip()
+    if len(title) < 10 and first_page:
+        top = max(b["size"] for b in first_page)
+        title = " ".join(b["text"] for b in first_page if b["size"] >= top - 0.1)
+    title = title or path.stem
 
     sections, current = [], {"name": "Front matter", "page": 1, "paras": []}
     for b in blocks:
@@ -340,7 +427,7 @@ def process_pdf(path, target, hard_max, min_tokens):
         paras = current["paras"]
         if (not in_front and not small and paras and paras[-1][-1:] not in ".!?:"
                 and b["text"][:1].islower()):
-            paras[-1] = join_lines([paras[-1], b["text"]])   # paragraph split by page/column
+            paras[-1] = join_lines([paras[-1], b["text"]], vocab)   # split by page/column
         else:
             paras.append(b["text"])
     sections.append(current)
