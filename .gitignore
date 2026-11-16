@@ -13,3 +13,7 @@ adapters/
 data/pdfs/
 data/processed/
 __pycache__/
+
+# eval: P001 items stay private; per-item outputs can quote P001
+data/eval/items_private.jsonl
+results/*_items.jsonl
