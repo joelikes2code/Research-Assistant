@@ -5,6 +5,11 @@ chunk_papers.py - turn research-paper PDFs into section-aware chunks with stable
 FREEZE THIS FILE before generating any training or test data. Every gold citation
 refers to the chunk IDs this script produces; changing it later invalidates them.
 
+FROZEN at v0.10 on 2026-11-18 (git tag chunker-v0.10-frozen) before drafting training
+data. Training examples cite these chunk IDs. If this file must change, re-run it,
+then rebuild the index and the examples, and re-check them all
+(data/eval items survive re-chunking because their gold is stored as quotes).
+
 Usage:
     python chunk_papers.py PDF_DIR OUT_DIR [--target 400] [--max 512] [--min 80]
 
