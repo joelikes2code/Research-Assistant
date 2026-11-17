@@ -9,8 +9,10 @@ Usage:
     python src/generate.py QUESTION [-k 5] [--model qwen3:4b] [--json]
 
 Needs Ollama running (http://localhost:11434, or set OLLAMA_HOST) and the model
-pulled (`ollama pull qwen3:1.7b`). Temperature 0 and a fixed seed, so runs are
-repeatable. Qwen3's thinking mode is off by default (--think turns it on).
+pulled (`ollama pull qwen3:1.7b`). Temperature 0 and a fixed seed make runs mostly,
+but not exactly, repeatable: Ollama on this machine is not bit-deterministic, and
+about 1 in 3 answers tested differed between identical runs. Repeat an eval to measure
+that noise before comparing models. Qwen3's thinking mode is off by default (--think).
 
 --json prints one record in validate_examples.py's format (item_id, task, paper_ids,
 question, context, answer) plus "model" and "citation_errors".

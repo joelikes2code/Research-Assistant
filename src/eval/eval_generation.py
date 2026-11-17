@@ -37,6 +37,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from items import ROOT, item_split, load_chunks, load_items, paper_splits, resolve_gold  # noqa: E402
 from validate_examples import ABSTAIN, cited_ids  # noqa: E402
+from build_examples import PAPER_SPLIT  # noqa: E402
+
+# papers used in fine-tuning data (train or val); items on other papers are "heldout",
+# the only slice that measures generalization rather than recall of trained facts
+TRAINED_PAPERS = set(PAPER_SPLIT)
 
 
 def cited(answer):
@@ -58,12 +63,16 @@ def score(item, rec, groups):
     else:
         s["abstained"] = abstained
         s["clean_abstain"] = isinstance(ans, str) and ans.strip() == ABSTAIN
+    # primary metric: the right behavior, done by the rules (an always-abstain model
+    # would pass rules_ok and abstained, but fails every answerable item here)
+    s["success"] = (s["rules_ok"] and s["answered"] and s["gold_cited"]) if item["answerable"] \
+        else s["clean_abstain"]
     return s
 
 
 def summarize(rows):
     out = {"n": len(rows)}
-    for key in ("rules_ok", "answered", "gold_cited", "gold_cited_all", "gold_in_ctx",
+    for key in ("success", "rules_ok", "answered", "gold_cited", "gold_cited_all", "gold_in_ctx",
                 "abstained", "clean_abstain"):
         vals = [r["scores"][key] for r in rows if key in r["scores"]]
         if vals:
@@ -105,6 +114,7 @@ def main():
                                   it["paper_ids"] if it["task"] == "compare" else None,
                                   model, retriever=retriever)
             row = {"item_id": it["item_id"], "split": item_split(it, splits),
+                   "heldout": not set(it["paper_ids"]) & TRAINED_PAPERS,
                    "task": it["task"], "answerable": it["answerable"],
                    "question": it["question"], "answer": rec["answer"],
                    "cited": cited(rec["answer"]),
@@ -126,14 +136,17 @@ def main():
         part = [r for r in rows if r["split"] == sp]
         if part:
             summary[sp] = summarize(part)
+    held = [r for r in rows if r["heldout"]]
+    if held:
+        summary["heldout"] = summarize(held)
     Path(f"{base}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(f"\nmodel={model}  items={len(rows)}")
-    for name in ("all", "dev", "test"):
+    for name in ("all", "dev", "test", "heldout"):
         if name in summary:
             s = summary[name]
-            print(f"  {name:4} " + "  ".join(f"{k}={s[k]:.2f}" for k in
-                  ("rules_ok", "answered", "gold_cited", "gold_cited_all", "gold_in_ctx",
+            print(f"  {name:7} n={s['n']:<3}" + "  ".join(f"{k}={s[k]:.2f}" for k in
+                  ("success", "rules_ok", "answered", "gold_cited", "gold_cited_all", "gold_in_ctx",
                    "abstained", "clean_abstain") if k in s) + f"  ({s['mean_seconds']}s/item)")
     print("  errors:", summary["all"]["errors"])
     print(f"wrote {Path(base).relative_to(ROOT)}.json and _items.jsonl")

@@ -153,6 +153,7 @@ def main():
                        encoding="utf-8")
     print(v.stdout.strip() or v.stderr.strip())
 
+    from chat_format import render_training
     from prompt import build_messages
     accepted = [json.loads(l) for l in open(args.out / "accepted.jsonl", encoding="utf-8")]
     leaked = sorted({c["id"] for r in accepted for c in r["context"]
@@ -171,7 +172,9 @@ def main():
                           if isinstance(r["answer"], dict) else r["answer"])
                 msgs = build_messages(r["task"], r["question"], r["context"])
                 msgs.append({"role": "assistant", "content": target})
-                f.write(json.dumps({"item_id": r["item_id"], "messages": msgs},
+                # "text" is the exact string to train on: Ollama's qwen3 format (think=false)
+                f.write(json.dumps({"item_id": r["item_id"], "messages": msgs,
+                                    "text": render_training(msgs)},
                                    ensure_ascii=False) + "\n")
         kinds = Counter("abstain" if r["answer"] == ABSTAIN else r["task"] for r in rows)
         print(f"{split}: {len(rows)} accepted  {dict(sorted(kinds.items()))}")
