@@ -6,6 +6,7 @@ period, analysis fields with evidence).
     from prompt import build_messages
     msgs = build_messages("qa", question, passages)     # passages: [{"id", "text"}]
 """
+import json
 import sys
 from pathlib import Path
 
@@ -49,20 +50,52 @@ ANALYSIS_QUERIES = {
 }
 
 
+# Few-shot baseline: two training examples shown as earlier turns, one cited answer and
+# one abstention whose passages come from the right paper but lack the answer. Training
+# papers only (never eval or test papers); each demo keeps 2 passages to limit length.
+DEMO_IDS = ("P003-q26", "P004-a05-abs")
+DEMO_PASSAGES = 2
+_demos = None
+
+
+def load_demos(path=None):
+    global _demos
+    if _demos is None:
+        path = path or Path(__file__).resolve().parent.parent / "data/train/build/train.jsonl"
+        if not Path(path).exists():
+            raise FileNotFoundError(f"{path} missing: run src/build_examples.py first")
+        rows = {}
+        for line in open(path, encoding="utf-8"):
+            r = json.loads(line)
+            rows[r["item_id"]] = r
+        _demos = []
+        for i in DEMO_IDS:
+            r = rows[i]
+            gold = [c for c in r["context"] if c["id"] in r["gold_chunks"]]
+            rest = [c for c in r["context"] if c["id"] not in r["gold_chunks"]]
+            _demos.append((r["question"], (gold + rest)[:DEMO_PASSAGES], r["answer"]))
+    return _demos
+
+
 def format_passages(passages) -> str:
     return "\n\n".join(f"[{p['id']}]\n{p['text']}" for p in passages)
 
 
-def build_messages(task: str, question: str, passages) -> list[dict]:
+def build_messages(task: str, question: str, passages, demos=()) -> list[dict]:
+    """demos: [(question, passages, answer)] shown as earlier turns (qa/compare only)."""
     if task not in TASKS:
         raise ValueError(f"task must be one of {TASKS}")
     if task == "analysis":
         system = ANALYSIS_RULES
         user = f"Passages:\n\n{format_passages(passages)}\n\nSummarize the paper as JSON."
-    else:
-        system = RULES + ("\n" + COMPARE_RULES if task == "compare" else "")
-        user = f"Passages:\n\n{format_passages(passages)}\n\nQuestion: {question}"
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    system = RULES + ("\n" + COMPARE_RULES if task == "compare" else "")
+    msgs = [{"role": "system", "content": system}]
+    for q, ps, a in demos:
+        msgs += [{"role": "user", "content": f"Passages:\n\n{format_passages(ps)}\n\nQuestion: {q}"},
+                 {"role": "assistant", "content": a}]
+    user = f"Passages:\n\n{format_passages(passages)}\n\nQuestion: {question}"
+    return msgs + [{"role": "user", "content": user}]
 
 
 def analysis_schema(context_ids) -> dict:

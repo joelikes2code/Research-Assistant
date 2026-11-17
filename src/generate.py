@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_citations import check_answer  # noqa: E402
-from prompt import ANALYSIS_QUERIES, analysis_schema, build_messages  # noqa: E402
+from prompt import ANALYSIS_QUERIES, analysis_schema, build_messages, load_demos  # noqa: E402
 
 DEFAULT_MODEL = "qwen3:1.7b"
 OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
@@ -76,7 +76,7 @@ def get_context(retriever, task, question, k, paper_ids):
 
 
 def answer(question, task="qa", k=5, paper_ids=None, model=DEFAULT_MODEL,
-           think=False, retriever=None):
+           think=False, retriever=None, fewshot=False):
     if task == "compare" and len(paper_ids or []) < 2:
         raise ValueError("--task compare needs --papers with at least two IDs")
     if task == "analysis" and len(paper_ids or []) != 1:
@@ -85,7 +85,8 @@ def answer(question, task="qa", k=5, paper_ids=None, model=DEFAULT_MODEL,
         from retrieve import Retriever
         retriever = Retriever()
     context = get_context(retriever, task, question, k, paper_ids)
-    msgs = build_messages(task, question, context)
+    demos = load_demos() if fewshot and task != "analysis" else ()
+    msgs = build_messages(task, question, context, demos)
     if task == "analysis":
         raw = ollama_chat(msgs, model, fmt=analysis_schema([c["id"] for c in context]),
                           think=think)
@@ -108,13 +109,15 @@ def main():
     ap.add_argument("-k", type=int, default=5, help="passages (per paper for compare)")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--think", action="store_true", help="enable Qwen3 thinking mode")
+    ap.add_argument("--fewshot", action="store_true", help="prepend two training examples")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     try:
-        rec = answer(args.question, args.task, args.k, args.papers, args.model, args.think)
+        rec = answer(args.question, args.task, args.k, args.papers, args.model, args.think,
+                     fewshot=args.fewshot)
     except (ValueError, RuntimeError) as e:
         sys.exit(str(e))
     if args.json:

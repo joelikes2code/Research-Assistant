@@ -91,6 +91,7 @@ def main():
     ap.add_argument("--split", default="all", choices=["all", "dev", "test"])
     ap.add_argument("--limit", type=int)
     ap.add_argument("--items", nargs="*", help="only these item IDs")
+    ap.add_argument("--fewshot", action="store_true", help="prepend two training examples (baseline B3)")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -104,7 +105,8 @@ def main():
              and (not args.items or i["item_id"] in args.items)][:args.limit]
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    base = ROOT / "results" / f"gen_{re.sub(r'[^A-Za-z0-9.]+', '-', model)}_{stamp}"
+    label = model + ("+fewshot" if args.fewshot else "")
+    base = ROOT / "results" / f"gen_{re.sub(r'[^A-Za-z0-9.+]+', '-', label)}_{stamp}"
     rows = []
     with open(f"{base}_items.jsonl", "w", encoding="utf-8") as f:
         for n, it in enumerate(items, 1):
@@ -112,7 +114,7 @@ def main():
             t0 = time.time()
             rec = generate.answer(it["question"], it["task"], args.k,
                                   it["paper_ids"] if it["task"] == "compare" else None,
-                                  model, retriever=retriever)
+                                  model, retriever=retriever, fewshot=args.fewshot)
             row = {"item_id": it["item_id"], "split": item_split(it, splits),
                    "heldout": not set(it["paper_ids"]) & TRAINED_PAPERS,
                    "task": it["task"], "answerable": it["answerable"],
@@ -130,7 +132,7 @@ def main():
             print(f"[{n}/{len(items)}] {it['item_id']:5} {row['seconds']:6.1f}s  missing: {flags}",
                   flush=True)
 
-    summary = {"model": model, "k": args.k, "split": args.split, "index": retriever.meta,
+    summary = {"model": model, "fewshot": args.fewshot, "k": args.k, "split": args.split, "index": retriever.meta,
                "all": summarize(rows)}
     for sp in ("dev", "test"):
         part = [r for r in rows if r["split"] == sp]
