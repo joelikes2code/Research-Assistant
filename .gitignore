@@ -17,3 +17,6 @@ __pycache__/
 # eval: P001 items stay private; per-item outputs can quote P001
 data/eval/items_private.jsonl
 results/*_items.jsonl
+
+# built training files contain paper text; regenerate with src/build_examples.py
+data/train/build/

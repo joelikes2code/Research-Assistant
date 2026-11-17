@@ -1,0 +1,16 @@
+{"seed_id": "P003-h01", "task": "qa", "paper_ids": ["P003"], "question": "How many human annotators checked Task Shield's alignment scores?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P003-h02", "task": "qa", "paper_ids": ["P003"], "question": "For how many epochs was the Task Shield defender model fine-tuned?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P003-h03", "task": "qa", "paper_ids": ["P003"], "question": "What is the cost in dollars of running Task Shield on the full AgentDojo benchmark?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P003-h04", "task": "qa", "paper_ids": ["P003"], "question": "Which programming language is Task Shield implemented in?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P004-h01", "task": "qa", "paper_ids": ["P004"], "question": "What learning rate was used to fine-tune the LLMs in the Open-Prompt-Injection benchmark?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P004-h02", "task": "qa", "paper_ids": ["P004"], "question": "How many human annotators judged attack success in the Open-Prompt-Injection benchmark?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P004-h03", "task": "qa", "paper_ids": ["P004"], "question": "How many lines of code does the Open-Prompt-Injection platform contain?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P004-h04", "task": "qa", "paper_ids": ["P004"], "question": "What was the total API cost of the Open-Prompt-Injection experiments?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P005-h01", "task": "qa", "paper_ids": ["P005"], "question": "Under which open-source license is the CaMeL code released?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P005-h02", "task": "qa", "paper_ids": ["P005"], "question": "How many lines of code does the CaMeL interpreter have?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P005-h03", "task": "qa", "paper_ids": ["P005"], "question": "How many human annotators wrote CaMeL's security policies?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P005-h04", "task": "qa", "paper_ids": ["P005"], "question": "What learning rate was used to train CaMeL's Privileged LLM?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P008-h01", "task": "qa", "paper_ids": ["P008"], "question": "How many human annotators labelled the attack cases used to evaluate MELON?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P008-h02", "task": "qa", "paper_ids": ["P008"], "question": "For how many epochs was MELON's detection model trained?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P008-h03", "task": "qa", "paper_ids": ["P008"], "question": "How many lines of code does the MELON implementation have?", "answer": null, "abstain": true, "same_paper": true}
+{"seed_id": "P008-h04", "task": "qa", "paper_ids": ["P008"], "question": "Under which license is the MELON code released?", "answer": null, "abstain": true, "same_paper": true}
