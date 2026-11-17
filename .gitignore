@@ -20,3 +20,4 @@ results/*_items.jsonl
 
 # built training files contain paper text; regenerate with src/build_examples.py
 data/train/build/
+.tmp/
