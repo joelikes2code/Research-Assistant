@@ -1,0 +1,4 @@
+# Fine-tuning runs on a cloud GPU (Kaggle or Colab), not locally: see
+# notebooks/finetune_lora.ipynb, whose first cell installs this.
+# The notebook records the exact versions used in each run (<run>.json).
+unsloth

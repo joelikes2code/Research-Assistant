@@ -7,4 +7,5 @@ dependencies = [
     "fastembed>=0.9.1",
     "pymupdf>=2.1",
     "rank-bm25>=0.2.2",
+    "streamlit>=1.67.0",
 ]
