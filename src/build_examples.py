@@ -111,6 +111,8 @@ def main():
     ap.add_argument("--drafts", type=Path, default=ROOT / "data" / "train" / "drafts")
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "train" / "build")
     ap.add_argument("-k", type=int, default=5)
+    ap.add_argument("--no-abstain", action="store_true",
+                    help="ablation A1: leave out the should-abstain seeds (use with --out)")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -124,6 +126,8 @@ def main():
     seeds = []
     for f in sorted(args.drafts.glob("*.jsonl")):
         seeds += [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+    if args.no_abstain:
+        seeds = [s for s in seeds if not s.get("abstain")]
     ids = [s["seed_id"] for s in seeds]
     if len(ids) != len(set(ids)):
         sys.exit(f"duplicate seed_ids: {[i for i, n in Counter(ids).items() if n > 1]}")
