@@ -38,7 +38,7 @@ error counts by type. **Not measured automatically:** whether answers are true. 
 |---|---|---|---|
 | B0 | always abstain | computed | 0.14 (6/43) |
 | B1 | `qwen3:1.7b`, zero-shot | 2 | 0.14, 0.14 |
-| B2 | `qwen3:4b-q4_K_M`, zero-shot (bigger model, no training) | running | |
+| B2 | `qwen3:4b-q4_K_M`, zero-shot (bigger model, no training) | 1 | 0.51 |
 | B3 | `qwen3:1.7b` with 2 training examples in the prompt (`--fewshot`) | 2 | 0.42, 0.42 |
 
 B2 note: the first B2 attempt used the installed `qwen3:4b` tag, which turned out to be
@@ -68,7 +68,7 @@ difference.
 4. Hand-check 20 answers per system. Then evaluate on the test papers once.
 5. A1 only if FT works, to explain why.
 
-## Results (2026-11-18; B2 and hand-check batch 2 pending)
+## Results (2026-11-18; hand-check batch 2 pending)
 
 **Training** (`results/ra-qwen3-1.7b-s*.json`): validation loss 4.002 before training for
 every seed (LoRA starts as the identity); best 0.481 / 0.476 / 0.477, kept epoch 3 / 2 / 2.
@@ -80,6 +80,7 @@ Same data hashes in all runs.
 |---|---|---|---|---|
 | B1 zero-shot (2 runs) | 0.14 | 0.21 | 0.49 | 0.17 |
 | B3 few-shot (2 runs) | 0.42 | 0.56 | 0.62 | 0.67 |
+| B2 qwen3:4b zero-shot | 0.51 | 0.86 | 0.59 | 0.50 |
 | FT seed 0 / 1 / 2 | 0.65 / 0.65 / 0.63 (mean 0.64) | 1.00 / 1.00 / 0.98 | 0.59 / 0.59 / 0.57 | 1.00 |
 
 - Both pre-registered criteria hold: mean 0.64 >= 0.40, and the margin over few-shot
@@ -87,6 +88,10 @@ Same data hashes in all runs.
 - Paired on the same 43 items (added analysis, not pre-registered): FT succeeds where B3
   fails on 12 items, the reverse on 2-3; exact McNemar p = 0.013 / 0.013 / 0.035 per seed.
   These are not independent tests (same items, same B3 run).
+- Against B2 (4B, no training): FT-only 9 items, B2-only 3-4; McNemar p = 0.15 / 0.15 /
+  0.27. The fine-tuned 1.7B scores higher (0.64 vs 0.51) but this sample cannot
+  separate it from the 2.4x larger model. B2 follows the rules better than few-shot
+  (rules_ok 0.86) but abstains correctly on only half the unanswerable items.
 - The gain is format and abstention, not evidence choice: `gold_cited` does not improve
   over few-shot. Retrieval caps it: the gold chunk is in context for only 78% of items.
 
