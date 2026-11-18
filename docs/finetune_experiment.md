@@ -30,22 +30,27 @@ error counts by type. **Not measured automatically:** whether answers are true. 
   answerable dev items have a gold chunk cited in training, so the model could score by
   recall. Dev numbers are reported but not used for the conclusion.
 - **Held-out slice:** items whose papers are not in the fine-tuning data (P001, P002,
-  P006). Currently **15 items**, so one item is about 7 points. Expand it to about 40
-  (more P002/P006 items) **before** the final evaluation. The test papers are evaluated
-  once, at the end.
+  P006). Expanded from 15 to **43 items** (37 answerable, 6 unanswerable) before any
+  fine-tuned model was evaluated; one item is about 2.3 points.
 
 ## Baselines (same retrieval, prompt, k=5, eval code, Q4_K_M in Ollama)
-| ID | System | Status | Held-out success |
+| ID | System | Eval runs | Held-out success (n=43) |
 |---|---|---|---|
-| B0 | always abstain | computed | 0.13 (2/15) |
-| B1 | `qwen3:1.7b`, zero-shot | 1 eval run | 0.13 (2/15) |
-| B2 | `qwen3:4b`, zero-shot (bigger model, no training) | to run, ~2 h | |
-| B3 | `qwen3:1.7b` with 2 training examples in the prompt (few-shot) | needs a `--fewshot` option | |
+| B0 | always abstain | computed | 0.14 (6/43) |
+| B1 | `qwen3:1.7b`, zero-shot | 2 | 0.14, 0.14 |
+| B2 | `qwen3:4b-q4_K_M`, zero-shot (bigger model, no training) | running | |
+| B3 | `qwen3:1.7b` with 2 training examples in the prompt (`--fewshot`) | 2 | 0.42, 0.42 |
+
+B2 note: the first B2 attempt used the installed `qwen3:4b` tag, which turned out to be
+Qwen3-4B-Thinking-2507. It reasons before every answer and ignores `think=false` (about
+300 s per item; it timed out at item 16). That run is discarded. B2 uses
+`qwen3:4b-q4_K_M`, the original hybrid Qwen3 4B: same generation and chat template as
+`qwen3:1.7b`, so model size is the only difference from B1.
 
 ## Runs
 | ID | Config | Seeds | Where |
 |---|---|---|---|
-| FT | LoRA r=16, lr 2e-4, 3 epochs, best epoch by P007 val loss | 0, 1, 2 | Kaggle T4, ~30 min each (estimate) |
+| FT | LoRA r=16, lr 2e-4, 3 epochs, best epoch by P007 val loss | 0, 1, 2 | Kaggle T4, 20-30 min each |
 | A1 (optional) | FT without abstain examples | 0, 1, 2 | tests whether abstain data causes over-declining |
 
 Report mean and standard deviation over seeds for each slice.
@@ -62,6 +67,40 @@ difference.
 3. FT seeds 0-2 on Kaggle, import each with `src/import_ollama.py`, evaluate.
 4. Hand-check 20 answers per system. Then evaluate on the test papers once.
 5. A1 only if FT works, to explain why.
+
+## Results (2026-11-18; B2 and hand-check batch 2 pending)
+
+**Training** (`results/ra-qwen3-1.7b-s*.json`): validation loss 4.002 before training for
+every seed (LoRA starts as the identity); best 0.481 / 0.476 / 0.477, kept epoch 3 / 2 / 2.
+Same data hashes in all runs.
+
+**Held-out slice, automatic metrics** (`results/gen_*.json`):
+
+| System | success | rules_ok | gold_cited | clean_abstain |
+|---|---|---|---|---|
+| B1 zero-shot (2 runs) | 0.14 | 0.21 | 0.49 | 0.17 |
+| B3 few-shot (2 runs) | 0.42 | 0.56 | 0.62 | 0.67 |
+| FT seed 0 / 1 / 2 | 0.65 / 0.65 / 0.63 (mean 0.64) | 1.00 / 1.00 / 0.98 | 0.59 / 0.59 / 0.57 | 1.00 |
+
+- Both pre-registered criteria hold: mean 0.64 >= 0.40, and the margin over few-shot
+  (+0.22) is much larger than the seed spread (0.02).
+- Paired on the same 43 items (added analysis, not pre-registered): FT succeeds where B3
+  fails on 12 items, the reverse on 2-3; exact McNemar p = 0.013 / 0.013 / 0.035 per seed.
+  These are not independent tests (same items, same B3 run).
+- The gain is format and abstention, not evidence choice: `gold_cited` does not improve
+  over few-shot. Retrieval caps it: the gold chunk is in context for only 78% of items.
+
+**Hand-check batch 1** (`make_answer_review.py`, 20 answerable held-out items, blind):
+B1 11/20 correct, B3 13/20 (1 partly). Paired: B3-only 3, B1-only 1, McNemar p = 0.62.
+Automatic success on the same 20 items was 1/20 (B1) and 6/20 (B3): the metric mostly
+measures compliance with the citation rules, and few-shot's gain was format, not
+correctness. One answer passed automatically but was judged wrong. Batch 2 (B2 + the
+three FT seeds, same 20 items) decides whether fine-tuning improves correctness or only
+format.
+
+**Eval noise is small:** between repeated runs, B1 changed 1 of 69 answers and B3 none,
+far below the "1 in 3" measured earlier. So the second FT seed 0 eval run from the plan
+was skipped: the differences between systems (and between seeds) are not run-to-run noise.
 
 ## Logging
 Each training run saves `<run>.json`: seed, git commit, data hashes, hyperparameters,

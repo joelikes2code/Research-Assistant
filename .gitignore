@@ -21,3 +21,6 @@ results/*_items.jsonl
 # built training files contain paper text; regenerate with src/build_examples.py
 data/train/build*/
 .tmp/
+
+# hand-review sheets quote paper text (incl. private P001)
+results/review/

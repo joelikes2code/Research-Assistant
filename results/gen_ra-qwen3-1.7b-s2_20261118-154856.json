@@ -1,0 +1,108 @@
+{
+  "model": "ra-qwen3-1.7b-s2",
+  "fewshot": false,
+  "k": 5,
+  "split": "all",
+  "index": {
+    "model": "BAAI/bge-small-en-v1.5",
+    "n_chunks": 356,
+    "chunks_path": "D:\\dev\\research-assistant\\data\\processed\\chunks.jsonl",
+    "chunks_sha256": "110eb8bf1481dde9356914685c8013f2028d239e6c487c5e9d390edd09f9e1dd",
+    "chunker_sha256": "3bc1bb77a72e5554c00faac00623c14da43d18395679d15694d777298a06ffb0"
+  },
+  "all": {
+    "n": 69,
+    "success": 0.681,
+    "success_n": 69,
+    "rules_ok": 0.971,
+    "rules_ok_n": 69,
+    "answered": 0.9,
+    "answered_n": 60,
+    "gold_cited": 0.633,
+    "gold_cited_n": 60,
+    "gold_cited_all": 0.583,
+    "gold_cited_all_n": 60,
+    "gold_in_ctx": 0.8,
+    "gold_in_ctx_n": 60,
+    "abstained": 1.0,
+    "abstained_n": 9,
+    "clean_abstain": 1.0,
+    "clean_abstain_n": 9,
+    "errors": {
+      "number_not_in_cited_chunk": 2,
+      "cites_chunk_not_in_context": 1,
+      "sentence_without_citation": 1
+    },
+    "mean_seconds": 29.9
+  },
+  "dev": {
+    "n": 29,
+    "success": 0.69,
+    "success_n": 29,
+    "rules_ok": 0.966,
+    "rules_ok_n": 29,
+    "answered": 0.923,
+    "answered_n": 26,
+    "gold_cited": 0.654,
+    "gold_cited_n": 26,
+    "gold_cited_all": 0.654,
+    "gold_cited_all_n": 26,
+    "gold_in_ctx": 0.808,
+    "gold_in_ctx_n": 26,
+    "abstained": 1.0,
+    "abstained_n": 3,
+    "clean_abstain": 1.0,
+    "clean_abstain_n": 3,
+    "errors": {
+      "number_not_in_cited_chunk": 2,
+      "cites_chunk_not_in_context": 1
+    },
+    "mean_seconds": 33.3
+  },
+  "test": {
+    "n": 40,
+    "success": 0.675,
+    "success_n": 40,
+    "rules_ok": 0.975,
+    "rules_ok_n": 40,
+    "answered": 0.882,
+    "answered_n": 34,
+    "gold_cited": 0.618,
+    "gold_cited_n": 34,
+    "gold_cited_all": 0.529,
+    "gold_cited_all_n": 34,
+    "gold_in_ctx": 0.794,
+    "gold_in_ctx_n": 34,
+    "abstained": 1.0,
+    "abstained_n": 6,
+    "clean_abstain": 1.0,
+    "clean_abstain_n": 6,
+    "errors": {
+      "sentence_without_citation": 1
+    },
+    "mean_seconds": 27.4
+  },
+  "heldout": {
+    "n": 43,
+    "success": 0.628,
+    "success_n": 43,
+    "rules_ok": 0.977,
+    "rules_ok_n": 43,
+    "answered": 0.892,
+    "answered_n": 37,
+    "gold_cited": 0.568,
+    "gold_cited_n": 37,
+    "gold_cited_all": 0.514,
+    "gold_cited_all_n": 37,
+    "gold_in_ctx": 0.784,
+    "gold_in_ctx_n": 37,
+    "abstained": 1.0,
+    "abstained_n": 6,
+    "clean_abstain": 1.0,
+    "clean_abstain_n": 6,
+    "errors": {
+      "sentence_without_citation": 1
+    },
+    "mean_seconds": 27.1
+  }
+}
