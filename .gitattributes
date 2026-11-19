@@ -1,0 +1,3 @@
+# Keep LF line endings in the working tree on every OS. index.py and build_examples.py
+# fingerprint files by their bytes; Windows CRLF conversion would make them look changed.
+* text=auto eol=lf
