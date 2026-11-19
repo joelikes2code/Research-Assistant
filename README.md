@@ -62,6 +62,8 @@ first public date.
 - **P003, P004, P005, P008** train, **P007** validation: CC BY 4.0.
 - Built training files contain paper text and are gitignored; rebuild them with
   `src/build_examples.py`.
+- Code is MIT-licensed (`LICENSE`). Passages quoted from the papers (training drafts,
+  eval gold quotes) stay under each paper's CC BY 4.0 licence; see `data/papers.csv`.
 
 ## Evaluation
 
