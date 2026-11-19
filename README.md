@@ -51,6 +51,21 @@ uv run python src/generate.py "" --task analysis --papers P007
 A passing citation check means the answer followed the rules, not that it is true:
 the app shows the passages so each claim can be checked.
 
+### Adding your own papers
+
+Upload a PDF in the app's sidebar (or `uv run python src/library.py add paper.pdf`). It
+is chunked with the same frozen chunker, gets an ID like `U001`, and can be asked about
+right away; the app previews its first passages so you can see whether it was read
+cleanly, and ✕ removes it.
+
+- Added papers are kept apart from the experiment: they go to `data/user/` and a second
+  index, `chroma_library/` (both gitignored). The evaluation index `chroma_db/` never
+  changes, so eval runs stay comparable with the results below.
+- The first upload builds the library index (about 2 minutes); later ones take about
+  20 seconds.
+- Needs a PDF with a text layer (scanned papers are rejected). The chunker's heading
+  rules were tuned on 8 layouts, so unusual layouts can extract badly: check the preview.
+
 ## Data and licences
 
 `data/papers.csv` is the record for every paper: licence, how it was verified, split and

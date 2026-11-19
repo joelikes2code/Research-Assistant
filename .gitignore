@@ -24,3 +24,7 @@ data/train/build*/
 
 # hand-review sheets quote paper text (incl. private P001)
 results/review/
+
+# papers added by the user (src/library.py): may be copyrighted, stay local
+data/user/
+chroma_library/

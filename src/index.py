@@ -46,23 +46,10 @@ def load_chunks(path: Path) -> list[dict]:
     return chunks
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS)
-    ap.add_argument("--db", type=Path, default=DEFAULT_DB)
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--batch", type=int, default=32)
-    args = ap.parse_args()
-
-    import chromadb
-    from fastembed import TextEmbedding
-
-    chunks = load_chunks(args.chunks)
-    print(f"{len(chunks)} chunks from {args.chunks}")
-
-    model = TextEmbedding(args.model)
+def embed_and_add(col, chunks, model, batch=32):
+    """Embed chunks with fastembed `model` and add them to Chroma collection `col`."""
     texts = [c["text"] for c in chunks]
-    vecs = [v.tolist() for v in model.embed(texts, batch_size=args.batch)]
+    vecs = [v.tolist() for v in model.embed(texts, batch_size=batch)]
 
     # Safety net: chunker v0.9+ caps chunks at 512 tokens of this tokenizer, so this should
     # only fire if --model differs from chunk_papers.TOKENIZER.
@@ -76,14 +63,6 @@ def main():
         for cid, n in long:
             print(f"  warning: {cid} has {n} tokens > {max_len}; embedding sees only the start")
 
-    args.db.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(args.db))
-    try:
-        client.delete_collection(COLLECTION)
-    except Exception:
-        pass                                      # first build: nothing to delete
-    col = client.create_collection(COLLECTION, metadata={"hnsw:space": "cosine"},
-                                   embedding_function=None)
     col.add(
         ids=[c["chunk_id"] for c in chunks],
         embeddings=vecs,
@@ -92,16 +71,47 @@ def main():
                    for c in chunks],
     )
 
-    meta = {
-        "model": args.model,
-        "n_chunks": len(chunks),
-        "chunks_path": str(args.chunks.resolve()),
-        "chunks_sha256": sha256(args.chunks),
-        "chunker_sha256": sha256(CHUNKER),
-    }
-    (args.db / META_FILE).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+def write_meta(db: Path, chunks_path: Path, model_name: str, n_chunks: int, **extra):
+    """Fingerprint the index so retrieve.py can refuse a stale one."""
+    meta = {"model": model_name, "n_chunks": n_chunks,
+            "chunks_path": str(Path(chunks_path).resolve()),
+            "chunks_sha256": sha256(chunks_path), "chunker_sha256": sha256(CHUNKER), **extra}
+    (Path(db) / META_FILE).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
+def build_index(chunks_path: Path, db: Path, model_name: str = DEFAULT_MODEL, batch=32,
+                **meta_extra):
+    """Rebuild the collection in `db` from scratch from `chunks_path`. Returns the chunks."""
+    import chromadb
+    from fastembed import TextEmbedding
+
+    chunks = load_chunks(chunks_path)
+    print(f"{len(chunks)} chunks from {chunks_path}")
+    Path(db).mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(db))
+    try:
+        client.delete_collection(COLLECTION)
+    except Exception:
+        pass                                      # first build: nothing to delete
+    col = client.create_collection(COLLECTION, metadata={"hnsw:space": "cosine"},
+                                   embedding_function=None)
+    embed_and_add(col, chunks, TextEmbedding(model_name), batch)
+    write_meta(db, chunks_path, model_name, len(chunks), **meta_extra)
+    return chunks
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--chunks", type=Path, default=DEFAULT_CHUNKS)
+    ap.add_argument("--db", type=Path, default=DEFAULT_DB)
+    ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument("--batch", type=int, default=32)
+    args = ap.parse_args()
+
+    chunks = build_index(args.chunks, args.db, args.model, args.batch)
     papers = sorted({c["paper_id"] for c in chunks})
-    print(f"indexed {col.count()} chunks from {len(papers)} papers ({', '.join(papers)}) "
+    print(f"indexed {len(chunks)} chunks from {len(papers)} papers ({', '.join(papers)}) "
           f"into {args.db} with {args.model}")
 
 
