@@ -137,6 +137,34 @@ moved more. Backend change is a larger perturbation than repeating a run (0-1 of
 so every comparison uses runs from one backend; the planned follow-up analyses use the
 GPU runs.
 
+**Error breakdown (added 2026-11-19, exploratory; `src/eval/error_breakdown.py`).**
+Each answerable held-out item is classed as success, retrieval miss (no gold chunk among
+the 5 passages) or generation error with a gold chunk available (declined, cited only
+non-gold passages, or cited gold but broke a rule). GPU runs, n = 37:
+
+| System | success | retrieval miss | wrong passage | rule broken | declined |
+|---|---|---|---|---|---|
+| B1 zero-shot | 3 | 7 | 14 | 13 | 0 |
+| B3 few-shot | 14 | 7 | 8 | 8 | 0 |
+| B2 qwen3:4b | 19 | 7 | 8 | 3 | 0 |
+| FT s0 / s1 / s2 | 20 / 23 / 20 | 7 | 10 / 7 / 8 | 0 / 0 / 1 | 0 / 0 / 1 |
+
+- Retrieval misses are the same 7 items for every system (identical search).
+- Fine-tuning removed rule breaks (13 -> 8 -> 3 -> 0) but not wrong-passage citations
+  (about 8 for every system except zero-shot). CPU runs show the same pattern.
+
+Crossed with the 120 hand-checked answers (CPU runs): metric success was correct 35/40,
+partly 5, wrong 0; but 40 of 80 metric failures were judged correct (25 "wrong passage",
+10 "rule broken", 5 answered after a retrieval miss). The metric is conservative: it
+never passed a wrong answer but caught only 35 of 75 correct ones (47%), mainly because
+the gold lists are incomplete (the answer is often also in another passage, e.g. a later
+section restating the abstract). Of the 31 answers judged wrong, 13 were retrieval misses
+and 17 cited a wrong passage although a gold one was in context.
+
+Position: in wrong-passage cases the gold passage was usually ranked first and the model
+cited a lower-ranked one; it cited a passage ranked above the gold one in only 14 of 72
+citations, so there is no simple primacy bias (to be tested by the passage-order probe).
+
 **Eval noise is small:** between repeated runs, B1 changed 1 of 69 answers and B3 none,
 far below the "1 in 3" measured earlier. So the second FT seed 0 eval run from the plan
 was skipped: the differences between systems (and between seeds) are not run-to-run noise.
