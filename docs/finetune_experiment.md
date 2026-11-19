@@ -68,7 +68,7 @@ difference.
 4. Hand-check 20 answers per system. Then evaluate on the test papers once.
 5. A1 only if FT works, to explain why.
 
-## Results (2026-11-18; hand-check batch 2 pending)
+## Results (2026-11-18, hand-check batch 2 2026-11-19)
 
 **Training** (`results/ra-qwen3-1.7b-s*.json`): validation loss 4.002 before training for
 every seed (LoRA starts as the identity); best 0.481 / 0.476 / 0.477, kept epoch 3 / 2 / 2.
@@ -99,9 +99,31 @@ Same data hashes in all runs.
 B1 11/20 correct, B3 13/20 (1 partly). Paired: B3-only 3, B1-only 1, McNemar p = 0.62.
 Automatic success on the same 20 items was 1/20 (B1) and 6/20 (B3): the metric mostly
 measures compliance with the citation rules, and few-shot's gain was format, not
-correctness. One answer passed automatically but was judged wrong. Batch 2 (B2 + the
-three FT seeds, same 20 items) decides whether fine-tuning improves correctness or only
-format.
+correctness. One answer passed automatically but was judged wrong.
+
+**Hand-check batch 2** (B2 + the three FT seeds, the same 20 items, blind): drafted by
+Claude with a one-line reason per verdict, then checked by the user, who changed 3 of 80
+(E018: one FT answer w to p, one c to p; E040: the B2 answer p to c).
+
+| System | Graded by | correct | partly | wrong | abstained |
+|---|---|---|---|---|---|
+| B1 zero-shot | user | 11 | 0 | 9 | 0 |
+| B3 few-shot | user | 13 | 1 | 6 | 0 |
+| B2 qwen3:4b | Claude, user-checked | 14 | 2 | 3 | 1 |
+| FT seed 0 / 1 / 2 | Claude, user-checked | 14 / 12 / 11 (mean 12.3) | 0 / 4 / 2 | 5 / 3 / 5 | 1 / 1 / 2 |
+
+- Each FT seed vs B2, paired: FT-only correct 3 / 1 / 1 items, B2-only 3 / 3 / 4; exact
+  McNemar p = 1.00 / 0.62 / 0.38.
+- **Conclusion: fine-tuning improved format and abstention, not correctness.** All six
+  systems are 55-70% correct, no difference this sample can detect (n = 20); if anything
+  the untrained 4B model is as correct as the best seed. The large automatic gain (0.64
+  vs 0.42 few-shot) is rule compliance and clean declining.
+- The most common error in every system is a correct fact cited to the wrong chunk
+  (X001, X003, E018, E051). E052 was wrong for all four systems and E047 was declined
+  by all four (its gold chunk is likely not retrieved).
+- Limits: n = 20; two graders across the batches (B1/B3 by the user, the rest drafted by
+  Claude, who also wrote the training data, so a bias toward FT was possible; the user's
+  three changes all moved FT seeds down or B2 up).
 
 **Eval noise is small:** between repeated runs, B1 changed 1 of 69 answers and B3 none,
 far below the "1 in 3" measured earlier. So the second FT seed 0 eval run from the plan

@@ -83,16 +83,23 @@ uv run python src/eval/compare.py           # mean ± sd over runs, per slice
 - **Noise:** Ollama is not bit-deterministic on CPU even at temperature 0, so evals are
   repeated and compared against their run-to-run spread.
 
-### Results so far
+### Results
 
-| System | Runs | success, all | success, held-out |
-|---|---|---|---|
-| always decline (trivial) | – | 0.12 | 0.13 |
-| `qwen3:1.7b` zero-shot | 1 (41 items) | 0.12 | 0.13 (15 items) |
+| System | Eval runs | success, all (69) | success, held-out (43) | hand-checked correct (20) |
+|---|---|---|---|---|
+| always decline (trivial) | – | 0.12 | 0.14 | – |
+| `qwen3:1.7b` zero-shot | 2 | 0.13 | 0.14 | 11/20 |
+| `qwen3:1.7b` few-shot | 2 | 0.45 | 0.42 | 13/20 |
+| `qwen3:4b` zero-shot | 1 | 0.57 | 0.51 | 14/20 |
+| `qwen3:1.7b` + LoRA (3 seeds) | 1 each | 0.70 ± 0.01 | 0.64 ± 0.01 | 14, 12, 11 /20 |
 
-Baselines on the full 69 items (repeats, few-shot, `qwen3:4b`) and the fine-tuned model
-are pending. Retrieval (36 answerable items): gold chunk in the top 5 for 78% with
-hybrid search, 83% with BM25, 67% dense only.
+Fine-tuning makes the 1.7B model follow the citation rules (rules_ok ≈ 1.0) and decline
+exactly when it should, which the automatic metric rewards. **Its answers are not more
+often correct:** in a blind hand-check of the same 20 held-out questions every system is
+55-70% correct, with no detectable difference. The common error is a true fact cited
+to the wrong passage. Retrieval also caps every system: the gold chunk is in the top 5
+for only 78% of answerable items (hybrid; BM25 83%, dense only 67%). Details, seeds and
+significance tests: [docs/finetune_experiment.md](docs/finetune_experiment.md).
 
 ## Fine-tuning
 
