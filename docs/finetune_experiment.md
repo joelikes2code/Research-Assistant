@@ -125,6 +125,18 @@ Claude with a one-line reason per verdict, then checked by the user, who changed
   Claude, who also wrote the training data, so a bias toward FT was possible; the user's
   three changes all moved FT seeds down or B2 up).
 
+**Second inference backend (added 2026-11-19, not pre-registered).** All six systems
+were re-run with Ollama on the integrated GPU (Vulkan, `OLLAMA_IGPU_ENABLE=1`) instead of
+the CPU; summaries in `results/igpu/`. Retrieval was identical (same passages for all 69
+items). Held-out success CPU -> GPU: FT 0.65/0.65/0.63 -> 0.60/0.67/0.60 (mean 0.64 ->
+0.63 ± 0.04), B2 0.51 -> 0.53, B3 0.42 -> 0.42, B1 0.14 -> 0.09. Same ranking; FT vs B3
+paired p = 0.039 / 0.003 / 0.039, FT vs B2 p = 0.55 / 0.07 / 0.55 (still unresolved).
+The backend reworded 23-28 of 69 FT answers, 24 for B2, 41 for B3 and 56 for B1, but
+changed held-out success on only 1-4 items per system: less constrained systems are
+moved more. Backend change is a larger perturbation than repeating a run (0-1 of 69),
+so every comparison uses runs from one backend; the planned follow-up analyses use the
+GPU runs.
+
 **Eval noise is small:** between repeated runs, B1 changed 1 of 69 answers and B3 none,
 far below the "1 in 3" measured earlier. So the second FT seed 0 eval run from the plan
 was skipped: the differences between systems (and between seeds) are not run-to-run noise.
