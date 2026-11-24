@@ -87,6 +87,9 @@ uv run python src/eval/items.py             # check every gold quote still match
 uv run python src/eval/eval_retrieval.py    # recall@k / MRR for hybrid, dense, BM25
 uv run python src/eval/eval_generation.py --model qwen3:1.7b [--fewshot]
 uv run python src/eval/compare.py           # mean ± sd over runs, per slice
+uv run python src/eval/eval_generation.py --model <m> --order reversed --outdir results/probe
+uv run python src/eval/order_probe.py       # does the model cite by content or by position?
+uv sync --group nli && uv run python src/eval/support_check.py   # NLI: do cited chunks entail the claims?
 ```
 
 - **69 items** (`data/eval/items.jsonl` + 4 private): answerable, compare and unanswerable
@@ -138,7 +141,10 @@ thinking off (`src/chat_format.py`), which differs from Hugging Face's Qwen3 tem
 - The eval items, training examples and gold quotes were drafted by an LLM (Claude) and
   checked mechanically and by a second pass; a human spot-check is still advised.
 - The held-out slice is small (43 items): one item is about 2 points.
-- Answer correctness beyond citation rules is not scored automatically.
+- Answer correctness beyond citation rules is not scored automatically yet. An NLI support
+  check is implemented (`src/eval/support_check.py`) but has not been run. The
+  passage-order probe has one finished run (FT seed 0 reversed: it cites by content,
+  not position).
 
 ## Layout
 

@@ -165,6 +165,27 @@ Position: in wrong-passage cases the gold passage was usually ranked first and t
 cited a lower-ranked one; it cited a passage ranked above the gold one in only 14 of 72
 citations, so there is no simple primacy bias (to be tested by the passage-order probe).
 
+**Passage-order probe (added 2026-11-20, exploratory, incomplete; `src/eval/order_probe.py`).**
+Same five passages as the GPU base run, shown in reversed or shuffled order
+(`eval_generation.py --order`, `--outdir results/probe`). Only FT seed 0 reversed has
+finished; B2 reversed, s0/B2 shuffled and s1/s2 reversed are still to run. Answerable
+held-out items, n = 37, one run:
+
+| System | success base -> reversed | McNemar p | same cited set | cites retriever rank 1 | cites shown position 1 |
+|---|---|---|---|---|---|
+| FT s0 | 20 -> 23 | 0.38 | 25/35 | 0.42 -> 0.43 | 0.42 -> 0.11 |
+
+- Citations follow the passage, not the slot: the share citing the retriever's top
+  passage is unchanged, while the share citing whatever is shown first collapses. This
+  agrees with the error breakdown (no primacy bias), but it is one seed and one order.
+
+**NLI support check (implemented, not yet run; `src/eval/support_check.py`).** Scores
+whether each cited chunk entails the sentence citing it (DeBERTa-v3-large NLI, threshold
+0.5 and max over cited chunks, both fixed in advance), and validates the checker against
+the 120 hand-checked answers. Install with `uv sync --group nli`. A test pair took about
+17 s on the CPU, so a full run is an overnight job. This is the automatic test of the
+"format, not correctness" conclusion above.
+
 **Eval noise is small:** between repeated runs, B1 changed 1 of 69 answers and B3 none,
 far below the "1 in 3" measured earlier. So the second FT seed 0 eval run from the plan
 was skipped: the differences between systems (and between seeds) are not run-to-run noise.
