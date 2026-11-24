@@ -20,6 +20,7 @@ question, context, answer) plus "model" and "citation_errors".
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import urllib.error
@@ -75,8 +76,23 @@ def get_context(retriever, task, question, k, paper_ids):
     return [{"id": h["chunk_id"], "text": h["text"]} for h in hits]
 
 
+ORDERS = ("retrieved", "reversed", "shuffled")
+
+
+def reorder(context, order, key):
+    """Passage-order probe: same passages, different order in the prompt. 'shuffled' is
+    seeded by `key` (the question), so every system sees the same permutation."""
+    if order == "reversed":
+        return context[::-1]
+    if order == "shuffled":
+        out = list(context)
+        random.Random(key).shuffle(out)
+        return out
+    return context
+
+
 def answer(question, task="qa", k=5, paper_ids=None, model=DEFAULT_MODEL,
-           think=False, retriever=None, fewshot=False):
+           think=False, retriever=None, fewshot=False, order="retrieved"):
     if task == "compare" and len(paper_ids or []) < 2:
         raise ValueError("--task compare needs --papers with at least two IDs")
     if task == "analysis" and len(paper_ids or []) != 1:
@@ -84,7 +100,7 @@ def answer(question, task="qa", k=5, paper_ids=None, model=DEFAULT_MODEL,
     if retriever is None:
         from retrieve import Retriever
         retriever = Retriever()
-    context = get_context(retriever, task, question, k, paper_ids)
+    context = reorder(get_context(retriever, task, question, k, paper_ids), order, question)
     demos = load_demos() if fewshot and task != "analysis" else ()
     msgs = build_messages(task, question, context, demos)
     if task == "analysis":

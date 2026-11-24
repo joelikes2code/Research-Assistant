@@ -28,3 +28,6 @@ results/review/
 # papers added by the user (src/library.py): may be copyrighted, stay local
 data/user/
 chroma_library/
+
+# Claude Code local state (worktrees, settings)
+.claude/
