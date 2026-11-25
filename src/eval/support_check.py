@@ -72,6 +72,10 @@ class NLI:
         labels = {v.lower(): int(k) for k, v in self.model.config.id2label.items()}
         self.entail = labels["entailment"]
         self.commit = getattr(self.model.config, "_commit_hash", None)
+        if self.commit is None:  # transformers 5 no longer sets it: read the cache snapshot dir
+            from huggingface_hub import try_to_load_from_cache
+            cfg = try_to_load_from_cache(MODEL, "config.json")
+            self.commit = Path(cfg).parent.name if isinstance(cfg, str) else None
         self.cache, self.truncated = {}, 0
 
     def score(self, pairs, batch=4):

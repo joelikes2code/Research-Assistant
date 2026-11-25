@@ -117,7 +117,9 @@ Claude with a one-line reason per verdict, then checked by the user, who changed
 - **Conclusion: fine-tuning improved format and abstention, not correctness.** All six
   systems are 55-70% correct, no difference this sample can detect (n = 20); if anything
   the untrained 4B model is as correct as the best seed. The large automatic gain (0.64
-  vs 0.42 few-shot) is rule compliance and clean declining.
+  vs 0.42 few-shot) is rule compliance and clean declining. The later NLI check (below)
+  adds one thing: over the 1.7B base, fine-tuning also made citations back their claims
+  more often (attribution), without making answers more often true.
 - The most common error in every system is a correct fact cited to the wrong chunk
   (X001, X003, E018, E051). E052 was wrong for all four systems and E047 was declined
   by all four (its gold chunk is likely not retrieved).
@@ -163,28 +165,74 @@ and 17 cited a wrong passage although a gold one was in context.
 
 Position: in wrong-passage cases the gold passage was usually ranked first and the model
 cited a lower-ranked one; it cited a passage ranked above the gold one in only 14 of 72
-citations, so there is no simple primacy bias (to be tested by the passage-order probe).
+citations, so there is no simple primacy bias (tested by the passage-order probe below).
 
-**Passage-order probe (added 2026-11-20, exploratory, incomplete; `src/eval/order_probe.py`).**
+**Passage-order probe (added 2026-11-20, exploratory; `src/eval/order_probe.py`).**
 Same five passages as the GPU base run, shown in reversed or shuffled order
-(`eval_generation.py --order`, `--outdir results/probe`). Only FT seed 0 reversed has
-finished; B2 reversed, s0/B2 shuffled and s1/s2 reversed are still to run. Answerable
-held-out items, n = 37, one run:
+(`eval_generation.py --order`, `--outdir results/probe`). Answerable held-out items,
+n = 37, one run per system and order (full table with the all-items slice:
+`python src/eval/order_probe.py`):
 
-| System | success base -> reversed | McNemar p | same cited set | cites retriever rank 1 | cites shown position 1 |
-|---|---|---|---|---|---|
-| FT s0 | 20 -> 23 | 0.38 | 25/35 | 0.42 -> 0.43 | 0.42 -> 0.11 |
+| System | Order | success base -> probe | McNemar p | same cited set | cites retriever rank 1 | cites shown position 1 |
+|---|---|---|---|---|---|---|
+| B2 (4B) | reversed | 19 -> 21 | 0.73 | 26/34 | 0.35 -> 0.33 | 0.35 -> 0.10 |
+| B2 (4B) | shuffled | 19 -> 19 | 1.00 | 25/34 | 0.35 -> 0.38 | 0.35 -> 0.23 |
+| FT s0 | reversed | 20 -> 23 | 0.38 | 25/35 | 0.42 -> 0.43 | 0.42 -> 0.11 |
+| FT s0 | shuffled | 20 -> 21 | 1.00 | 21/35 | 0.42 -> 0.47 | 0.42 -> 0.30 |
+| FT s1 | reversed | 23 -> 23 | 1.00 | 22/34 | 0.42 -> 0.44 | 0.42 -> 0.07 |
+| FT s2 | reversed | 20 -> 23 | 0.38 | 25/33 | 0.38 -> 0.43 | 0.38 -> 0.13 |
 
-- Citations follow the passage, not the slot: the share citing the retriever's top
-  passage is unchanged, while the share citing whatever is shown first collapses. This
-  agrees with the error breakdown (no primacy bias), but it is one seed and one order.
+- Citations follow the passage, not the slot: in every run the share citing the
+  retriever's top passage is unchanged, while the share citing whatever is shown first
+  drops (to near zero when reversed, toward chance when shuffled). This agrees with the
+  error breakdown: no primacy bias, for the base 4B model or any FT seed.
+- No run changes success significantly (all p >= 0.38). About a quarter of cited sets
+  do change, far more than run-to-run noise (1 of 69 answers), so order does change
+  which secondary passages get cited, but not toward the first slot and not success.
+- Not run: base 1.7B models (B1, B3) and shuffled for FT s1/s2. Each cell is one run.
 
-**NLI support check (implemented, not yet run; `src/eval/support_check.py`).** Scores
-whether each cited chunk entails the sentence citing it (DeBERTa-v3-large NLI, threshold
-0.5 and max over cited chunks, both fixed in advance), and validates the checker against
-the 120 hand-checked answers. Install with `uv sync --group nli`. A test pair took about
-17 s on the CPU, so a full run is an overnight job. This is the automatic test of the
-"format, not correctness" conclusion above.
+**NLI support check (run 2026-11-25; `src/eval/support_check.py`, scores in
+`results/support/`).** Scores whether each cited chunk entails the sentence citing it
+(DeBERTa-v3-large NLI, commit b3546ea, threshold 0.5 and max over cited chunks, both
+fixed in advance; a sentence with no citation counts as unsupported; 0 premises
+truncated). Install with `uv sync --group nli`; all 18 runs took about 9 h on the CPU.
+
+*Checker validation* (120 hand-checked answers, CPU runs): of 51 answers NLI marks fully
+supported, 44 were judged correct (precision 0.86), and only 2 of 31 wrong answers were
+marked fully supported. But it marks only 44 of 75 correct answers fully supported
+(recall 0.59); agreement 77/115. Like the citation metric, it is conservative: a pass is
+trustworthy, a fail often is not.
+
+*Per system* (answerable held-out items, one run each; first two columns iGPU, last two
+CPU):
+
+| System | fully supported answers (iGPU / CPU) | sentences per answer | uncited sentences | supported, cited sentences only (iGPU / CPU) |
+|---|---|---|---|---|
+| B1 zero-shot | 0.11 / 0.05 | 3.6-3.8 | 0.37-0.42 | 0.53 / 0.55 |
+| B3 few-shot | 0.19 / 0.22 | 2.1 | 0.24-0.28 | 0.52 / 0.54 |
+| B2 qwen3:4b | 0.60 / 0.60 | 1.7 | 0.10 | 0.83 / 0.83 |
+| FT s0 / s1 / s2 | 0.77 / 0.74 / 0.73 (iGPU), 0.74 / 0.71 / 0.73 (CPU) | 1.2-1.5 | 0.00-0.03 | 0.76-0.83 |
+
+The last three columns are an exploratory breakdown added after seeing the headline
+numbers (every sentence's score is in `results/support/*_support_items.jsonl`, which is
+gitignored like the other per-item files; rerun `support_check.py` to regenerate).
+
+- **FT vs B2:** FT's higher "fully supported" share is format. FT writes shorter answers
+  and cites every sentence; on cited sentences alone FT (0.76-0.83) and B2 (0.83) are
+  the same. This agrees with the hand-check (no correctness difference).
+- **FT vs its own base (B1, B3):** here the gain is not only format. When the base 1.7B
+  model cites a chunk, the chunk entails the claim about half the time (0.52-0.55); after
+  fine-tuning, 0.76-0.83. So fine-tuning improved attribution (citations that back the
+  claim), up to the level of the 2.4x larger B2. The hand-check (B3 13/20 correct, FT
+  mean 12.3/20) found no difference in whether answers are *true*, so this is better
+  citing of a similar answer, not a more correct answer. Caveats: n = 20 hand-checked
+  items, one run per system, no significance test on the sentence-level numbers
+  (sentences in one answer are not independent), and shorter FT sentences may be easier
+  to entail.
+- **Order probe:** FT support stays at 0.72-0.89 under reversed or shuffled passages
+  (B2: 0.58-0.66, vs 0.74 normal). Exploratory; one run each.
+- Per error class: 18 of 44 "wrong passage" answers were both fully supported and judged
+  correct, which supports the earlier finding that the gold lists are incomplete.
 
 **Eval noise is small:** between repeated runs, B1 changed 1 of 69 answers and B3 none,
 far below the "1 in 3" measured earlier. So the second FT seed 0 eval run from the plan

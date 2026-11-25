@@ -141,10 +141,14 @@ thinking off (`src/chat_format.py`), which differs from Hugging Face's Qwen3 tem
 - The eval items, training examples and gold quotes were drafted by an LLM (Claude) and
   checked mechanically and by a second pass; a human spot-check is still advised.
 - The held-out slice is small (43 items): one item is about 2 points.
-- Answer correctness beyond citation rules is not scored automatically yet. An NLI support
-  check is implemented (`src/eval/support_check.py`) but has not been run. The
-  passage-order probe has one finished run (FT seed 0 reversed: it cites by content,
-  not position).
+- Answer correctness is not scored automatically. An NLI support check
+  (`src/eval/support_check.py`) tests whether cited passages entail each claim: it is
+  precise (0.86 vs human grades) but misses many correct answers (recall 0.59). It shows
+  fine-tuning improved attribution over the 1.7B base (cited claims supported 0.52-0.55
+  -> 0.76-0.83, matching the 4B model), but the hand-check found no gain in answer
+  correctness. The passage-order probe (B2 and FT seeds, reversed/shuffled) finds no
+  order effect: systems cite by content, not position. Details:
+  `docs/finetune_experiment.md`.
 
 ## Layout
 
